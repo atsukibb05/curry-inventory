@@ -98,6 +98,14 @@ function jsonResponse(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// 在庫セルを安全に数値化(列書式が日付などになっていた場合でも 0 にフォールバック)
+function safeStockNum(raw) {
+  if (raw === '' || raw === null || raw === undefined) return 0;
+  if (raw instanceof Date) return 0; // 日付書式の混入を防御
+  const n = Number(raw);
+  return isFinite(n) ? n : 0;
+}
+
 // ====== 在庫取得 ======
 function getList() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -115,7 +123,7 @@ function getList() {
       const stocks = {};
       let total = 0;
       LOCATIONS.forEach(loc => {
-        const v = Number(row[loc.col - 1]) || 0;
+        const v = safeStockNum(row[loc.col - 1]);
         stocks[loc.name] = v;
         total += v;
       });
@@ -218,7 +226,7 @@ function doInOut(params) {
     }
     if (targetRow === -1) throw new Error('商品コードが見つかりません: ' + code);
 
-    const currentStock = Number(item[loc.col - 1]) || 0;
+    const currentStock = safeStockNum(item[loc.col - 1]);
     const newStock = type === '入庫' ? currentStock + qtyNum : currentStock - qtyNum;
     if (newStock < 0) throw new Error(loc.name + ' の在庫が足りません(現在 ' + currentStock + ')');
 
@@ -303,23 +311,39 @@ function updateItem(p) {
   throw new Error('商品コードが見つかりません: ' + p.code);
 }
 
+// シートを削除して新規作成(書式までリセットするため)
+function recreateSheet(ss, name) {
+  const old = ss.getSheetByName(name);
+  if (old) ss.deleteSheet(old);
+  return ss.insertSheet(name);
+}
+
 // ====== 初期化(初回のみ手動実行) ======
 function initializeSheets() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
-  // 在庫マスタ
-  let s = ss.getSheetByName(SHEET_STOCK) || ss.insertSheet(SHEET_STOCK);
-  s.clear();
+  // 何もシートが残らない状態を避けるため、ダミーシートを先に作る(削除順序対策)
+  let dummy = null;
+  if (ss.getSheets().length <= 5) {
+    dummy = ss.insertSheet('__tmp_init__');
+  }
+
+  // 在庫マスタ(シート削除→再作成で書式を完全リセット)
+  const s = recreateSheet(ss, SHEET_STOCK);
   s.getRange(1, 1, 1, 12).setValues([[
     '商品コード', '商品名', 'カテゴリー', '単位',
     '塩山店', '百間店', '河口湖店', 'MS',
     '最低在庫', '賞味期限', '備考', '更新日時'
   ]]);
   s.setFrozenRows(1);
+  // 在庫列を「自動(数値)」書式に明示設定
+  s.getRange(1, COL_STOCK_SHIOYAMA, s.getMaxRows(), 4).setNumberFormat('0.##');
+  s.getRange(1, COL_MIN_STOCK, s.getMaxRows(), 1).setNumberFormat('0.##');
+  s.getRange(1, COL_EXPIRY, s.getMaxRows(), 1).setNumberFormat('yyyy-mm-dd');
+  s.getRange(1, COL_UPDATED, s.getMaxRows(), 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
 
   // カテゴリー
-  let c = ss.getSheetByName(SHEET_CATEGORY) || ss.insertSheet(SHEET_CATEGORY);
-  c.clear();
+  const c = recreateSheet(ss, SHEET_CATEGORY);
   c.getRange(1, 1, 1, 3).setValues([['カテゴリー名', '表示順', 'アイコン']]);
   c.getRange(2, 1, 6, 3).setValues([
     ['香辛料', 1, '🌶️'],
@@ -332,8 +356,7 @@ function initializeSheets() {
   c.setFrozenRows(1);
 
   // 拠点
-  let l = ss.getSheetByName(SHEET_LOCATION) || ss.insertSheet(SHEET_LOCATION);
-  l.clear();
+  const l = recreateSheet(ss, SHEET_LOCATION);
   l.getRange(1, 1, 1, 3).setValues([['拠点名', '種別', '表示順']]);
   l.getRange(2, 1, LOCATIONS.length, 3).setValues(
     LOCATIONS.map(loc => [loc.name, loc.type, loc.order])
@@ -341,22 +364,24 @@ function initializeSheets() {
   l.setFrozenRows(1);
 
   // 履歴
-  let h = ss.getSheetByName(SHEET_HISTORY) || ss.insertSheet(SHEET_HISTORY);
-  h.clear();
+  const h = recreateSheet(ss, SHEET_HISTORY);
   h.getRange(1, 1, 1, 9).setValues([[
     '日時', '操作者', '拠点', '商品コード', '商品名', '区分', '数量', '操作後在庫', '備考'
   ]]);
   h.setFrozenRows(1);
+  h.getRange(1, 1, h.getMaxRows(), 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
 
   // 設定
-  let cfg = ss.getSheetByName(SHEET_CONFIG) || ss.insertSheet(SHEET_CONFIG);
-  cfg.clear();
+  const cfg = recreateSheet(ss, SHEET_CONFIG);
   cfg.getRange(1, 1, 1, 2).setValues([['キー', '値']]);
   cfg.getRange(2, 1, 2, 2).setValues([
     ['alert_threshold_ratio', 1.0],
     ['default_operator', '田中']
   ]);
   cfg.setFrozenRows(1);
+
+  // ダミーシートがあれば削除
+  if (dummy) ss.deleteSheet(dummy);
 
   // サンプル商品(拠点別在庫付き)
   // 配列構造: [code, name, category, unit, 塩山店, 百間店, 河口湖店, MS, 最低在庫, 賞味期限, 備考, 更新日時]
