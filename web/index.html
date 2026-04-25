@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#c8472b" />
+  <title>カレー在庫管理</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- ヘッダー -->
+    <header class="header">
+      <div class="header-inner">
+        <h1 class="logo">
+          <span class="logo-icon">🍛</span>
+          <span class="logo-text">Curry<br/><em>Stock</em></span>
+        </h1>
+        <div class="operator-select">
+          <label>操作者</label>
+          <select id="operator">
+            <option value="田中">田中</option>
+            <option value="鈴木">鈴木</option>
+            <option value="佐藤">佐藤</option>
+            <option value="山田">山田</option>
+          </select>
+        </div>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="stock">📦 在庫</button>
+        <button class="tab" data-tab="history">📜 履歴</button>
+        <button class="tab" data-tab="add">➕ 追加</button>
+      </nav>
+    </header>
+
+    <!-- アラートバー -->
+    <div id="alertBar" class="alert-bar hidden"></div>
+
+    <!-- メイン -->
+    <main>
+      <!-- 在庫タブ -->
+      <section id="tab-stock" class="tab-panel active">
+        <div class="category-tabs" id="categoryTabs"></div>
+        <div class="items-list" id="itemsList">
+          <div class="loading">読み込み中…</div>
+        </div>
+      </section>
+
+      <!-- 履歴タブ -->
+      <section id="tab-history" class="tab-panel">
+        <div class="history-header">
+          <h2>操作履歴</h2>
+          <button id="reloadHistory" class="ghost-btn">↻ 更新</button>
+        </div>
+        <div class="history-list" id="historyList">
+          <div class="loading">読み込み中…</div>
+        </div>
+      </section>
+
+      <!-- 商品追加タブ -->
+      <section id="tab-add" class="tab-panel">
+        <h2>新規商品の登録</h2>
+        <form id="addForm" class="add-form">
+          <label>商品コード <input name="code" required placeholder="例: SP004" /></label>
+          <label>商品名 <input name="name" required placeholder="例: ガラムマサラ" /></label>
+          <label>カテゴリー
+            <select name="category" id="addCategory" required></select>
+          </label>
+          <label>単位(容器)
+            <select name="unit" required>
+              <option>g</option><option>kg</option><option>個</option>
+              <option>本</option><option>缶</option><option>パック</option><option>L</option><option>ml</option>
+            </select>
+          </label>
+          <div class="row-2">
+            <label>初期在庫 <input name="stock" type="number" min="0" step="0.01" value="0" /></label>
+            <label>最低在庫 <input name="minStock" type="number" min="0" step="0.01" value="0" /></label>
+          </div>
+          <label>賞味期限 <input name="expiry" type="date" /></label>
+          <label>備考 <input name="note" placeholder="仕入先など" /></label>
+          <button type="submit" class="primary-btn">登録する</button>
+        </form>
+      </section>
+    </main>
+
+    <!-- 入出庫モーダル -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="modalClose">×</button>
+        <div class="modal-item-name" id="modalItemName"></div>
+        <div class="modal-current">
+          現在庫 <strong id="modalCurrentStock"></strong> <span id="modalUnit"></span>
+        </div>
+
+        <div class="qty-input-wrap">
+          <button type="button" class="qty-btn" data-delta="-1">−</button>
+          <input type="number" id="modalQty" value="1" min="0" step="1" inputmode="decimal" />
+          <button type="button" class="qty-btn" data-delta="1">+</button>
+        </div>
+        <div class="qty-presets">
+          <button type="button" class="preset" data-val="1">1</button>
+          <button type="button" class="preset" data-val="5">5</button>
+          <button type="button" class="preset" data-val="10">10</button>
+          <button type="button" class="preset" data-val="50">50</button>
+          <button type="button" class="preset" data-val="100">100</button>
+        </div>
+
+        <input id="modalNote" type="text" placeholder="備考(任意)" />
+
+        <div class="modal-actions">
+          <button class="action-btn in-btn" id="btnIn">＋ 入庫</button>
+          <button class="action-btn out-btn" id="btnOut">− 出庫</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- トースト -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
