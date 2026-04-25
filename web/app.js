@@ -151,6 +151,20 @@ function getStockForActiveLoc(item) {
   return Number(item.stocks[state.activeLocation]) || 0;
 }
 
+// 在庫ステータス判定: 余裕(ok) / 注意(warn) / 不足(danger)
+function getStockStatus(item) {
+  if (item.minStock <= 0) return null; // 最低在庫未設定
+  if (item.total <= item.minStock) return 'danger';
+  if (item.total <= item.minStock * 1.5) return 'warn';
+  return 'ok';
+}
+
+function statusBadgeHtml(status) {
+  if (!status) return '';
+  const labels = { ok: '余裕', warn: '注意', danger: '不足' };
+  return `<span class="status-badge ${status}">${labels[status]}</span>`;
+}
+
 function renderItems() {
   const list = document.getElementById('itemsList');
   let items = state.items;
@@ -170,29 +184,50 @@ function renderItems() {
       : '<div class="empty">商品がありません</div>';
     return;
   }
+  const isAllLoc = state.activeLocation === 'all';
   list.innerHTML = items.map(it => {
+    const status = getStockStatus(it);
     const showStock = getStockForActiveLoc(it);
-    // 最低在庫アラートは「全拠点合計」と比較
-    const isLow = it.minStock > 0 && it.total <= it.minStock;
-    const breakdown = state.activeLocation === 'all'
-      ? `<div class="stock-breakdown">
-           ${state.locations.map(l => {
-             const v = Number(it.stocks[l.name]) || 0;
-             return `<span class="bd-item"><em>${escapeHtml(l.name)}</em>${formatNum(v)}</span>`;
-           }).join('')}
-         </div>`
-      : '';
+    const totalLabel = isAllLoc ? '合計' : escapeHtml(state.activeLocation);
+
+    const stocksGrid = isAllLoc ? `
+      <div class="stocks-grid">
+        ${state.locations.map(l => {
+          const v = Number(it.stocks[l.name]) || 0;
+          const isWarehouse = l.type === '倉庫';
+          const isZero = v === 0;
+          return `<div class="stock-cell ${isWarehouse ? 'warehouse' : ''} ${isZero ? 'zero' : ''}">
+            <div class="stock-cell-name">${escapeHtml(l.name)}</div>
+            <div class="stock-cell-num">${formatNum(v)}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    ` : '';
+
+    const cardClass = [
+      'item-card',
+      !isAllLoc ? 'single-loc' : '',
+      status === 'danger' ? 'danger' : '',
+      status === 'warn' ? 'warn' : ''
+    ].filter(Boolean).join(' ');
+
     return `
-      <div class="item-card ${isLow ? 'low' : ''}" data-code="${escapeAttr(it.code)}">
-        <div class="item-info">
-          <div class="item-name">${escapeHtml(it.name)}</div>
-          <div class="item-meta">${escapeHtml(it.code)} · ${escapeHtml(it.category)} · 最低 ${formatNum(it.minStock)}${escapeHtml(it.unit)}</div>
-          ${breakdown}
+      <div class="${cardClass}" data-code="${escapeAttr(it.code)}">
+        <div class="item-header">
+          <div class="item-info">
+            <div class="item-name">${escapeHtml(it.name)}</div>
+            <div class="item-meta">${escapeHtml(it.code)} · ${escapeHtml(it.category)}${it.minStock > 0 ? ' · 最低 ' + formatNum(it.minStock) + escapeHtml(it.unit) : ''}</div>
+          </div>
+          <div class="item-total">
+            ${statusBadgeHtml(status)}
+            <div>
+              <span class="item-total-num">${formatNum(showStock)}</span>
+              <span class="item-total-unit">${escapeHtml(it.unit)}</span>
+            </div>
+            <div class="item-total-label">${totalLabel}</div>
+          </div>
         </div>
-        <div class="item-stock">
-          <span class="stock-num">${formatNum(showStock)}</span>
-          <span class="stock-unit">${escapeHtml(it.unit)}</span>
-        </div>
+        ${stocksGrid}
       </div>`;
   }).join('');
   list.querySelectorAll('.item-card').forEach(card => {
@@ -240,13 +275,13 @@ function openModal(code) {
   state.modalCode = code;
   document.getElementById('modalItemName').textContent = item.name;
 
-  // 拠点別在庫の表示
+  // 拠点別在庫の表示(横並び 4拠点 + 合計の 5セル grid)
   const stocksDiv = document.getElementById('modalStocks');
-  const rows = state.locations.map(l => {
+  const cells = state.locations.map(l => {
     const v = Number(item.stocks[l.name]) || 0;
     return `<div class="modal-stock-row"><span>${escapeHtml(l.name)}</span><strong>${formatNum(v)}<em>${escapeHtml(item.unit)}</em></strong></div>`;
   }).join('');
-  stocksDiv.innerHTML = rows + `<div class="modal-stock-row total"><span>合計</span><strong>${formatNum(item.total)}<em>${escapeHtml(item.unit)}</em></strong></div>`;
+  stocksDiv.innerHTML = cells + `<div class="modal-stock-row total"><span>合計</span><strong>${formatNum(item.total)}<em>${escapeHtml(item.unit)}</em></strong></div>`;
 
   // 拠点セレクト(現在のフィルタ拠点を初期選択。allなら最初の拠点)
   const locSel = document.getElementById('modalLocation');
