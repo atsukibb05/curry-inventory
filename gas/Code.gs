@@ -5,29 +5,28 @@
  * == API 仕様 ==
  * すべて GET / POST。レスポンスは { ok: boolean, data?: any, error?: string }
  *
- * GET  ?action=list          → 在庫一覧 + カテゴリー + 設定 を返す
- * GET  ?action=history&limit=50 → 履歴を新しい順で返す
- * POST { action: 'inOut', code, type: '入庫'|'出庫', qty, operator, note }
- *      → 入出庫処理(在庫更新 + 履歴記録)
- * POST { action: 'addItem', code, name, category, unit, stock, minStock, expiry, note }
- *      → 新規商品登録
+ * GET  ?action=list          → 在庫一覧 + カテゴリー + 拠点 + 設定
+ * GET  ?action=history&limit=50 → 履歴を新しい順
+ * POST { action: 'inOut', code, location, type: '入庫'|'出庫', qty, operator, note }
+ *      → 入出庫処理(指定拠点の在庫更新 + 履歴記録)
+ * POST { action: 'addItem', code, name, category, unit, stocks, minStock, expiry, note }
+ *      → 新規商品登録 (stocks は { 塩山店:数, 百間店:数, ... })
  * POST { action: 'updateItem', code, ...更新フィールド }
  *      → 商品マスタ更新
  *
  * == セットアップ ==
  * 1. このファイルを Apps Script プロジェクトに貼り付け
  * 2. SPREADSHEET_ID を自分のスプレッドシート ID に書き換え
- * 3. 「デプロイ」→「新しいデプロイ」→「ウェブアプリ」
- *    - 実行するユーザー: 自分
- *    - アクセスできるユーザー: 全員
- * 4. デプロイ URL を web/app.js の API_URL に貼る
+ * 3. initializeSheets を実行 → 拠点別シートが構築される
+ * 4. 「デプロイ」→「デプロイを管理」→ 編集 → 新バージョン → デプロイ
  */
 
 // ====== 設定 ======
-const SPREADSHEET_ID = '1UgENYWd0qs9eh0V2263De4c6LxbLeCM-2NsdViQukJU'; // ← 変更必須
+const SPREADSHEET_ID = '1UgENYWd0qs9eh0V2263De4c6LxbLeCM-2NsdViQukJU';
 const SHEET_STOCK = '在庫マスタ';
 const SHEET_HISTORY = '履歴';
 const SHEET_CATEGORY = 'カテゴリー';
+const SHEET_LOCATION = '拠点';
 const SHEET_CONFIG = '設定';
 
 // 在庫マスタの列インデックス(1始まり)
@@ -35,11 +34,26 @@ const COL_CODE = 1;
 const COL_NAME = 2;
 const COL_CATEGORY = 3;
 const COL_UNIT = 4;
-const COL_STOCK = 5;
-const COL_MIN_STOCK = 6;
-const COL_EXPIRY = 7;
-const COL_NOTE = 8;
-const COL_UPDATED = 9;
+const COL_STOCK_SHIOYAMA = 5;
+const COL_STOCK_HYAKKEN = 6;
+const COL_STOCK_KAWAGUCHIKO = 7;
+const COL_STOCK_MS = 8;
+const COL_MIN_STOCK = 9;
+const COL_EXPIRY = 10;
+const COL_NOTE = 11;
+const COL_UPDATED = 12;
+
+// 拠点の定義(拠点名と在庫マスタ列の対応)
+const LOCATIONS = [
+  { name: '塩山店',   type: '店舗', order: 1, col: COL_STOCK_SHIOYAMA },
+  { name: '百間店',   type: '店舗', order: 2, col: COL_STOCK_HYAKKEN },
+  { name: '河口湖店', type: '店舗', order: 3, col: COL_STOCK_KAWAGUCHIKO },
+  { name: 'MS',       type: '倉庫', order: 4, col: COL_STOCK_MS },
+];
+
+function findLocation(name) {
+  return LOCATIONS.find(l => l.name === name);
+}
 
 // ====== エントリーポイント ======
 function doGet(e) {
@@ -63,27 +77,13 @@ function handle(e, isPost) {
     let result;
 
     switch (action) {
-      case 'list':
-        result = getList();
-        break;
-      case 'history':
-        result = getHistory(parseInt(params.limit) || 50);
-        break;
-      case 'inOut':
-        result = doInOut(params);
-        break;
-      case 'addItem':
-        result = addItem(params);
-        break;
-      case 'updateItem':
-        result = updateItem(params);
-        break;
-      case 'init':
-        // 初期データ投入(セットアップ時に1回だけ使う)
-        result = initializeSheets();
-        break;
-      default:
-        throw new Error('Unknown action: ' + action);
+      case 'list':       result = getList(); break;
+      case 'history':    result = getHistory(parseInt(params.limit) || 50); break;
+      case 'inOut':      result = doInOut(params); break;
+      case 'addItem':    result = addItem(params); break;
+      case 'updateItem': result = updateItem(params); break;
+      case 'init':       result = initializeSheets(); break;
+      default: throw new Error('Unknown action: ' + action);
     }
 
     return jsonResponse({ ok: true, data: result });
@@ -103,24 +103,35 @@ function getList() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const stockSheet = ss.getSheetByName(SHEET_STOCK);
   const catSheet = ss.getSheetByName(SHEET_CATEGORY);
+  const locSheet = ss.getSheetByName(SHEET_LOCATION);
   const configSheet = ss.getSheetByName(SHEET_CONFIG);
 
   // 在庫
   const stockValues = stockSheet.getDataRange().getValues();
-  const stockHeader = stockValues.shift();
+  stockValues.shift(); // ヘッダー除去
   const items = stockValues
     .filter(row => row[COL_CODE - 1])
-    .map(row => ({
-      code: row[COL_CODE - 1],
-      name: row[COL_NAME - 1],
-      category: row[COL_CATEGORY - 1],
-      unit: row[COL_UNIT - 1],
-      stock: Number(row[COL_STOCK - 1]) || 0,
-      minStock: Number(row[COL_MIN_STOCK - 1]) || 0,
-      expiry: row[COL_EXPIRY - 1] ? Utilities.formatDate(new Date(row[COL_EXPIRY - 1]), 'Asia/Tokyo', 'yyyy-MM-dd') : '',
-      note: row[COL_NOTE - 1] || '',
-      updated: row[COL_UPDATED - 1] ? Utilities.formatDate(new Date(row[COL_UPDATED - 1]), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : ''
-    }));
+    .map(row => {
+      const stocks = {};
+      let total = 0;
+      LOCATIONS.forEach(loc => {
+        const v = Number(row[loc.col - 1]) || 0;
+        stocks[loc.name] = v;
+        total += v;
+      });
+      return {
+        code: row[COL_CODE - 1],
+        name: row[COL_NAME - 1],
+        category: row[COL_CATEGORY - 1],
+        unit: row[COL_UNIT - 1],
+        stocks: stocks,
+        total: total,
+        minStock: Number(row[COL_MIN_STOCK - 1]) || 0,
+        expiry: row[COL_EXPIRY - 1] ? Utilities.formatDate(new Date(row[COL_EXPIRY - 1]), 'Asia/Tokyo', 'yyyy-MM-dd') : '',
+        note: row[COL_NOTE - 1] || '',
+        updated: row[COL_UPDATED - 1] ? Utilities.formatDate(new Date(row[COL_UPDATED - 1]), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : ''
+      };
+    });
 
   // カテゴリー
   const catValues = catSheet.getDataRange().getValues();
@@ -130,6 +141,20 @@ function getList() {
     .map(r => ({ name: r[0], order: Number(r[1]) || 0, icon: r[2] || '' }))
     .sort((a, b) => a.order - b.order);
 
+  // 拠点
+  let locations = [];
+  if (locSheet) {
+    const locValues = locSheet.getDataRange().getValues();
+    locValues.shift();
+    locations = locValues
+      .filter(r => r[0])
+      .map(r => ({ name: r[0], type: r[1] || '店舗', order: Number(r[2]) || 0 }))
+      .sort((a, b) => a.order - b.order);
+  }
+  if (locations.length === 0) {
+    locations = LOCATIONS.map(l => ({ name: l.name, type: l.type, order: l.order }));
+  }
+
   // 設定
   const config = {};
   if (configSheet) {
@@ -138,7 +163,7 @@ function getList() {
     cfgValues.forEach(r => { if (r[0]) config[r[0]] = r[1]; });
   }
 
-  return { items, categories, config };
+  return { items, categories, locations, config };
 }
 
 // ====== 履歴取得 ======
@@ -146,28 +171,31 @@ function getHistory(limit) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName(SHEET_HISTORY);
   const values = sheet.getDataRange().getValues();
-  values.shift(); // ヘッダー
+  values.shift();
   const rows = values
     .filter(r => r[0])
     .map(r => ({
       datetime: r[0] ? Utilities.formatDate(new Date(r[0]), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss') : '',
       operator: r[1],
-      code: r[2],
-      name: r[3],
-      type: r[4],
-      qty: Number(r[5]) || 0,
-      stockAfter: Number(r[6]) || 0,
-      note: r[7] || ''
+      location: r[2],
+      code: r[3],
+      name: r[4],
+      type: r[5],
+      qty: Number(r[6]) || 0,
+      stockAfter: Number(r[7]) || 0,
+      note: r[8] || ''
     }))
-    .reverse() // 新しい順
+    .reverse()
     .slice(0, limit);
   return rows;
 }
 
 // ====== 入出庫処理 ======
 function doInOut(params) {
-  const { code, type, qty, operator, note } = params;
-  if (!code || !type || !qty) throw new Error('引数不足: code, type, qty が必要');
+  const { code, location, type, qty, operator, note } = params;
+  if (!code || !location || !type || !qty) throw new Error('引数不足: code, location, type, qty が必要');
+  const loc = findLocation(location);
+  if (!loc) throw new Error('未知の拠点: ' + location);
   const qtyNum = Number(qty);
   if (qtyNum <= 0) throw new Error('数量は1以上にしてください');
   if (type !== '入庫' && type !== '出庫') throw new Error('type は 入庫 または 出庫');
@@ -190,17 +218,16 @@ function doInOut(params) {
     }
     if (targetRow === -1) throw new Error('商品コードが見つかりません: ' + code);
 
-    const currentStock = Number(item[COL_STOCK - 1]) || 0;
+    const currentStock = Number(item[loc.col - 1]) || 0;
     const newStock = type === '入庫' ? currentStock + qtyNum : currentStock - qtyNum;
-    if (newStock < 0) throw new Error('在庫が足りません(現在 ' + currentStock + ')');
+    if (newStock < 0) throw new Error(loc.name + ' の在庫が足りません(現在 ' + currentStock + ')');
 
-    // 更新
-    sheet.getRange(targetRow, COL_STOCK).setValue(newStock);
+    sheet.getRange(targetRow, loc.col).setValue(newStock);
     sheet.getRange(targetRow, COL_UPDATED).setValue(new Date());
 
-    // 履歴
     logHistory({
       operator: operator || '不明',
+      location: loc.name,
       code: code,
       name: item[COL_NAME - 1],
       type: type,
@@ -209,7 +236,7 @@ function doInOut(params) {
       note: note || ''
     });
 
-    return { code, name: item[COL_NAME - 1], stockBefore: currentStock, stockAfter: newStock };
+    return { code, name: item[COL_NAME - 1], location: loc.name, stockBefore: currentStock, stockAfter: newStock };
   } finally {
     lock.releaseLock();
   }
@@ -221,6 +248,7 @@ function logHistory(rec) {
   sheet.appendRow([
     new Date(),
     rec.operator,
+    rec.location,
     rec.code,
     rec.name,
     rec.type,
@@ -238,14 +266,20 @@ function addItem(p) {
   for (let i = 1; i < data.length; i++) {
     if (data[i][COL_CODE - 1] === p.code) throw new Error('商品コードが重複: ' + p.code);
   }
-  sheet.appendRow([
-    p.code, p.name, p.category, p.unit,
-    Number(p.stock) || 0,
-    Number(p.minStock) || 0,
-    p.expiry || '',
-    p.note || '',
-    new Date()
-  ]);
+  const stocks = p.stocks || {};
+  const row = new Array(COL_UPDATED).fill('');
+  row[COL_CODE - 1] = p.code;
+  row[COL_NAME - 1] = p.name;
+  row[COL_CATEGORY - 1] = p.category;
+  row[COL_UNIT - 1] = p.unit;
+  LOCATIONS.forEach(loc => {
+    row[loc.col - 1] = Number(stocks[loc.name]) || 0;
+  });
+  row[COL_MIN_STOCK - 1] = Number(p.minStock) || 0;
+  row[COL_EXPIRY - 1] = p.expiry || '';
+  row[COL_NOTE - 1] = p.note || '';
+  row[COL_UPDATED - 1] = new Date();
+  sheet.appendRow(row);
   return { code: p.code };
 }
 
@@ -276,8 +310,10 @@ function initializeSheets() {
   // 在庫マスタ
   let s = ss.getSheetByName(SHEET_STOCK) || ss.insertSheet(SHEET_STOCK);
   s.clear();
-  s.getRange(1, 1, 1, 9).setValues([[
-    '商品コード', '商品名', 'カテゴリー', '単位', '現在庫', '最低在庫', '賞味期限', '備考', '更新日時'
+  s.getRange(1, 1, 1, 12).setValues([[
+    '商品コード', '商品名', 'カテゴリー', '単位',
+    '塩山店', '百間店', '河口湖店', 'MS',
+    '最低在庫', '賞味期限', '備考', '更新日時'
   ]]);
   s.setFrozenRows(1);
 
@@ -295,11 +331,20 @@ function initializeSheets() {
   ]);
   c.setFrozenRows(1);
 
+  // 拠点
+  let l = ss.getSheetByName(SHEET_LOCATION) || ss.insertSheet(SHEET_LOCATION);
+  l.clear();
+  l.getRange(1, 1, 1, 3).setValues([['拠点名', '種別', '表示順']]);
+  l.getRange(2, 1, LOCATIONS.length, 3).setValues(
+    LOCATIONS.map(loc => [loc.name, loc.type, loc.order])
+  );
+  l.setFrozenRows(1);
+
   // 履歴
   let h = ss.getSheetByName(SHEET_HISTORY) || ss.insertSheet(SHEET_HISTORY);
   h.clear();
-  h.getRange(1, 1, 1, 8).setValues([[
-    '日時', '操作者', '商品コード', '商品名', '区分', '数量', '操作後在庫', '備考'
+  h.getRange(1, 1, 1, 9).setValues([[
+    '日時', '操作者', '拠点', '商品コード', '商品名', '区分', '数量', '操作後在庫', '備考'
   ]]);
   h.setFrozenRows(1);
 
@@ -313,19 +358,21 @@ function initializeSheets() {
   ]);
   cfg.setFrozenRows(1);
 
-  // サンプル商品
-  s.getRange(2, 1, 10, 9).setValues([
-    ['SP001', 'クミンパウダー', '香辛料', 'g', 500, 200, '2026-12-31', '', new Date()],
-    ['SP002', 'ターメリック', '香辛料', 'g', 300, 200, '2026-12-31', '', new Date()],
-    ['SP003', 'コリアンダー', '香辛料', 'g', 400, 200, '2026-12-31', '', new Date()],
-    ['VG001', '玉ねぎ', '野菜', '個', 50, 20, '2026-05-10', '北海道産', new Date()],
-    ['VG002', 'にんにく', '野菜', 'kg', 2, 1, '2026-05-15', '', new Date()],
-    ['VG003', '生姜', '野菜', 'kg', 1.5, 0.5, '2026-05-12', '', new Date()],
-    ['MT001', '鶏もも肉', '肉類', 'kg', 10, 5, '2026-04-28', '冷蔵', new Date()],
-    ['DR001', 'ヨーグルト', '乳製品', 'g', 2000, 1000, '2026-05-05', '', new Date()],
-    ['SC001', 'トマト缶', '調味料', '缶', 24, 12, '2027-06-30', '400g缶', new Date()],
-    ['PK001', '使い捨て容器500ml', '包材', '個', 100, 50, '', '', new Date()]
+  // サンプル商品(拠点別在庫付き)
+  // 配列構造: [code, name, category, unit, 塩山店, 百間店, 河口湖店, MS, 最低在庫, 賞味期限, 備考, 更新日時]
+  const now = new Date();
+  s.getRange(2, 1, 10, 12).setValues([
+    ['SP001', 'クミンパウダー',     '香辛料', 'g',  100,  100,  100,  200, 200,    '2026-12-31', '',       now],
+    ['SP002', 'ターメリック',       '香辛料', 'g',   50,   50,   50,  150, 200,    '2026-12-31', '',       now],
+    ['SP003', 'コリアンダー',       '香辛料', 'g',   80,   80,   80,  160, 200,    '2026-12-31', '',       now],
+    ['VG001', '玉ねぎ',             '野菜',   '個',  15,   10,   10,   15,  20,    '2026-05-10', '北海道産', now],
+    ['VG002', 'にんにく',           '野菜',   'kg', 0.5,  0.5,  0.5,  0.5,   1,    '2026-05-15', '',       now],
+    ['VG003', '生姜',               '野菜',   'kg', 0.5,  0.3,  0.2,  0.5, 0.5,    '2026-05-12', '',       now],
+    ['MT001', '鶏もも肉',           '肉類',   'kg',   3,    2,    2,    3,   5,    '2026-04-28', '冷蔵',   now],
+    ['DR001', 'ヨーグルト',         '乳製品', 'g',  500,  500,  500,  500, 1000,   '2026-05-05', '',       now],
+    ['SC001', 'トマト缶',           '調味料', '缶',   6,    6,    6,    6,  12,    '2027-06-30', '400g缶', now],
+    ['PK001', '使い捨て容器500ml', '包材',   '個',  25,   25,   25,   25,  50,    '',           '',       now]
   ]);
 
-  return { message: '初期化完了。サンプルデータを投入しました。' };
+  return { message: '初期化完了。拠点別在庫マスタとサンプルデータを投入しました。' };
 }

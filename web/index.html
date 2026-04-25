@@ -43,6 +43,11 @@
     <main>
       <!-- 在庫タブ -->
       <section id="tab-stock" class="tab-panel active">
+        <div class="search-wrap">
+          <input type="search" id="searchBox" class="search-box" placeholder="🔍 商品名・コードで検索…" autocomplete="off" />
+          <button type="button" id="searchClear" class="search-clear hidden" aria-label="クリア">×</button>
+        </div>
+        <div class="location-tabs" id="locationTabs"></div>
         <div class="category-tabs" id="categoryTabs"></div>
         <div class="items-list" id="itemsList">
           <div class="loading">読み込み中…</div>
@@ -75,10 +80,11 @@
               <option>本</option><option>缶</option><option>パック</option><option>L</option><option>ml</option>
             </select>
           </label>
-          <div class="row-2">
-            <label>初期在庫 <input name="stock" type="number" min="0" step="0.01" value="0" /></label>
-            <label>最低在庫 <input name="minStock" type="number" min="0" step="0.01" value="0" /></label>
-          </div>
+          <fieldset class="stock-fieldset">
+            <legend>初期在庫(拠点別)</legend>
+            <div id="addStockInputs" class="stock-inputs"></div>
+          </fieldset>
+          <label>最低在庫(全拠点合計の閾値) <input name="minStock" type="number" min="0" step="0.01" value="0" /></label>
           <label>賞味期限 <input name="expiry" type="date" /></label>
           <label>備考 <input name="note" placeholder="仕入先など" /></label>
           <button type="submit" class="primary-btn">登録する</button>
@@ -91,9 +97,13 @@
       <div class="modal-card">
         <button class="modal-close" id="modalClose">×</button>
         <div class="modal-item-name" id="modalItemName"></div>
-        <div class="modal-current">
-          現在庫 <strong id="modalCurrentStock"></strong> <span id="modalUnit"></span>
-        </div>
+
+        <div class="modal-stocks" id="modalStocks"></div>
+
+        <label class="modal-loc-label">
+          拠点
+          <select id="modalLocation"></select>
+        </label>
 
         <div class="qty-input-wrap">
           <button type="button" class="qty-btn" data-delta="-1">−</button>

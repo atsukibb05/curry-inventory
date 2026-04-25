@@ -445,3 +445,218 @@ body {
 }
 .toast.hidden { display: none; }
 .toast.error { background: var(--alert); }
+
+/* === 検索ボックス === */
+.search-wrap {
+  position: relative;
+  margin-bottom: 12px;
+}
+.search-box {
+  width: 100%;
+  padding: 10px 38px 10px 14px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 500;
+  background: var(--bg-card);
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search-box:focus {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 2px 0 var(--turmeric);
+}
+.search-box::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  color: var(--bg);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.search-clear.hidden { display: none; }
+
+/* === 拠点タブ === */
+.location-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+.location-tabs::-webkit-scrollbar { display: none; }
+.loc-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 2px solid var(--line);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.loc-pill .loc-ico { font-size: 14px; }
+.loc-pill.active {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+  box-shadow: 0 2px 0 var(--curry-deep);
+}
+.loc-pill:not(.active):hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+/* === 在庫カードの拠点別内訳 === */
+.stock-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+}
+.bd-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+}
+.bd-item em {
+  font-style: normal;
+  color: var(--cumin);
+  font-weight: 700;
+}
+
+/* === モーダルの拠点別在庫表示 === */
+.modal-stocks {
+  background: var(--bg);
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 8px 14px;
+  margin-bottom: 14px;
+}
+.modal-stock-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  border-bottom: 1px dashed var(--line);
+}
+.modal-stock-row:last-child { border-bottom: none; }
+.modal-stock-row strong {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.modal-stock-row strong em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-left: 2px;
+}
+.modal-stock-row.total {
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 2px solid var(--ink);
+  border-bottom: none;
+  font-weight: 700;
+  color: var(--ink);
+}
+.modal-stock-row.total strong {
+  font-size: 20px;
+  color: var(--curry);
+}
+
+/* === モーダルの拠点セレクタ === */
+.modal-loc-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+  margin-bottom: 14px;
+}
+.modal-loc-label select {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%232a1f15' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+/* === 履歴の拠点バッジ === */
+.h-loc {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  margin-left: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--cumin);
+  vertical-align: middle;
+  letter-spacing: 0.03em;
+}
+
+/* === 商品追加フォーム: 拠点別在庫入力 === */
+.stock-fieldset {
+  border: 2px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 14px 14px;
+}
+.stock-fieldset legend {
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+}
+.stock-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.stock-input-cell {
+  display: flex !important;
+  flex-direction: column;
+  gap: 4px;
+}
+.stock-input-cell span {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
